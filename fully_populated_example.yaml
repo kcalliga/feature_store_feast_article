@@ -3,6 +3,8 @@ kind: FeatureStore
 metadata:
   name: full-enterprise-feature-store
   namespace: your-namespace
+  labels:
+    feature-store-ui: enabled # This is needed for RHOAI dashboard to show FeatureStore objects in menu  
 spec:
   # The logical project ID used by Feast to group features
   feastProject: "production_ml_project"
@@ -83,7 +85,7 @@ spec:
                     storage: "1Gi"
       server:                   # Enable the Registry API server
         enabled: true
-        restAPI: true
+        restAPI: true # This is also needed for the RHOAI GUI to show FeatureStore objects in menu
         grpc: true
 
     # ONLINE STORE (High-Speed Access)
