@@ -1,0 +1,132 @@
+apiVersion: feast.dev/v1
+kind: FeatureStore
+metadata:
+  name: full-enterprise-feature-store
+  namespace: your-namespace
+spec:
+  # The logical project ID used by Feast to group features
+  feastProject: "production_ml_project"
+
+  # --- GIT SOURCE (GitOps Automation) ---
+  # Replaces manual 'feast apply' by watching a repository for changes
+  feastProjectDir:
+    git:
+      url: "https://github.com/your-org/feature-definitions.git"
+      ref: "main"               # Branch, tag, or commit hash
+      featureRepoPath: "features" # Subdirectory for feature_definitions.py
+      secretRef:
+        name: git-credentials-secret # K8s Secret with 'username' and 'password'
+      env:                      # Env vars for the git container
+        - name: GIT_TERMINAL_PROMPT
+          value: "0"
+      configs:                  # Git configs passed via -c (e.g., http.sslVerify)
+        http.sslVerify: "false"
+
+  # --- RUNTIME SERVICES CONFIGURATION ---
+  services:
+    # Global deployment strategy for Feast pods
+    deploymentStrategy:
+      type: "RollingUpdate"
+      rollingUpdate:
+        maxSurge: 1
+        maxUnavailable: 0
+
+    # FEATURE SERVER (The Data API)
+    # Serves real-time feature values to models via REST or gRPC
+    server:
+      enabled: true
+      logLevel: "info"          # debug, info, warning, error, critical
+      metrics: true             # Exposes Prometheus metrics
+      nodeSelector:             # Schedule pods on specific nodes
+        node-role.kubernetes.io/worker: ""
+      resources:                # Compute limits and requests
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+      tls:                      # Secure the serving endpoint
+        disable: false
+        secretRef:
+          name: server-tls-cert
+        secretKeyNames:
+          tlsCrt: "tls.crt"
+          tlsKey: "tls.key"
+
+    # UI SERVER (The Web Dashboard)
+    # Enables the standalone browser-based catalog
+    ui:
+      enabled: true
+      logLevel: "info"
+      resources:
+        limits:
+          memory: "1Gi"
+      tls:
+        disable: true           # Set to false if using custom certs
+
+    # REGISTRY CONFIGURATION (Metadata Persistence)
+    registry:
+      local:                    # Manages the registry metadata locally
+        persistence:
+          file:
+            path: "/var/lib/feast/registry.db"
+            cache_mode: "sync"  # Options: sync, thread, none
+            cache_ttl_seconds: 600
+            pvc:                # Use a PVC for metadata persistence
+              mountPath: "/var/lib/feast"
+              create:
+                storageClassName: "gp3"
+                accessModes: ["ReadWriteOnce"]
+                resources:
+                  requests:
+                    storage: "1Gi"
+      server:                   # Enable the Registry API server
+        enabled: true
+        restAPI: true
+        grpc: true
+
+    # ONLINE STORE (High-Speed Access)
+    onlineStore:
+      store:
+        type: "redis"           # redis, postgres, dynamodb, mysql, etc.
+        secretRef:
+          name: redis-connection-secret
+        secretKeyName: "redis"  # Key inside the secret containing settings
+
+    # OFFLINE STORE (Historical Data)
+    offlineStore:
+      store:
+        type: "postgres"        # bigquery, snowflake, spark, redshift, etc.
+        secretRef:
+          name: postgres-connection-secret
+      server:                   # Optional remote offline server
+        enabled: true
+
+  # --- BATCH MATERIALIZATION (CronJob) ---
+  # Automatically moves data from Offline to Online store on a schedule
+  cronJob:
+    schedule: "0 * * * *"       # Hourly materialization
+    startingDeadlineSeconds: 300
+    concurrencyPolicy: "Forbid"
+    containerConfigs:
+      image: "quay.io/feast/feast-operator:latest"
+      commands: ["feast", "materialize-incremental", "$(date -u +%Y-%m-%dT%H:%M:%S)"]
+
+  # --- SECURITY & ACCESS CONTROL ---
+  authz:                        # Authorization for Feast services
+    kubernetes:                 # Maps to standard OpenShift/K8s RBAC
+      roles: ["feature-admin", "feature-viewer"]
+
+  # Global security context for all Feast pods
+  securityContext:
+    runAsUser: 1000860000
+    runAsNonRoot: true
+    fsGroup: 1000860000
+
+  # --- CUSTOM VOLUME MOUNTS ---
+  # Mount extra files (like CA bundles) into all services
+  volumes:
+    - name: custom-ca-bundle
+      configMap:
+        name: trusted-ca-map
