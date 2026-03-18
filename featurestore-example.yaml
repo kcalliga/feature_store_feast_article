@@ -1,0 +1,18 @@
+apiVersion: feast.dev/v1
+kind: FeatureStore
+metadata:
+ name: myopenshiftblogdemofeaturestore
+ labels:
+   feature-store-ui: enabled # This is needed for RHOAI dashboard to show FeatureStore objects in menu
+spec:
+ feastProject: myopenshiftblog
+ services:
+   registry:
+     local:
+       path: registry.db
+       server:
+         restAPI: true
+   offlineStore:
+     persistence:
+       file:
+         path: offline_store.db
