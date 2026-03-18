@@ -16,3 +16,4 @@ spec:
      persistence:
        file:
          path: offline_store.db
+     ui: {}
